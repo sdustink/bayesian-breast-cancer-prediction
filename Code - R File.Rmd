@@ -1,0 +1,224 @@
+---
+title: "Breast Cancer Risk Prediction Using Bayesian Logistic Regression"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Breast cancer is one of the most common malignancies affecting women worldwide and remains a major public health concern due to its high incidence and risk of recurrence. Early detection and accurate prediction of cancer recurrence are crucial for improving patient prognosis and guiding clinical decision-making. As a result, statistical and machine learning approaches have been widely applied to analyze clinical and pathological data related to breast cancer outcomes.
+
+This study aims to apply Bayesian Logistic Regression to analyze breast cancer recurrence using clinical attributes from the datase. Also leveraging the strengths of Bayesian inference in handling uncertainty and interpretability
+
+# Data Preparation
+```{r, message=FALSE, warning=FALSE}
+#importing libraries used for the analysis
+
+#install.packages(c("rjags", "coda", "dplyr", "pROC", "ggplot2", "bayesplot"))
+library(rjags)
+library(coda)
+library(dplyr)
+library(pROC)
+library(ggplot2)
+library(bayesplot)
+
+```
+
+The first step is to import our dataset
+
+```{r, message=FALSE, warning=FALSE}
+#importing dataset from .csv file
+data_file <- "breast-cancer.csv"
+data <- read.csv(data_file, header = TRUE)
+head(data)
+
+set.seed(123)
+```
+
+```{r, message=FALSE, warning=FALSE}
+#setting features and target variable (M=Malignant, B=Benign) to binary form (1=M, 0=B)
+data <- data %>%
+  mutate(diagnosis_bin = ifelse(diagnosis == "M", 1, 0)) %>%
+  select(diagnosis_bin, radius_mean, texture_mean, perimeter_mean, area_mean, smoothness_mean, compactness_mean, concavity_mean, concave.points_mean, symmetry_mean, fractal_dimension_mean)
+```
+
+```{r, message=FALSE, warning=FALSE}
+#separating feature (X) and target (Y)
+Y <- data$diagnosis_bin
+X <- data %>% select(-diagnosis_bin)
+```
+
+```{r, message=FALSE, warning=FALSE}
+#scaling numerical features on 0-1 scale
+X_scaled <- as.data.frame(scale(X))
+N <- nrow(data)
+K <- ncol(X_scaled)
+```
+
+# MCMC Modeling
+
+```{r, message=FALSE, warning=FALSE}
+#configuring MCMC Model
+model_string <- "
+model {
+  # LIKELIHOOD (Bernoulli with Logit Link)
+  for (i in 1:N) {
+    Y[i] ~ dbern(p[i])
+    logit(p[i]) <- alpha + inprod(beta[], X[i,])
+  }
+
+  # PRIOR DISTRIBUTION
+  # Prior for Intercept (alpha)
+  alpha ~ dnorm(0, 1)
+
+  # Prior for Regression Coeff (beta)
+  for (j in 1:K) {
+    beta[j] ~ dnorm(0, 1) # Mean 0, Presisi 1
+  }
+}
+"
+```
+
+```{r, message=FALSE, warning=FALSE}
+#configuring data for JAGS
+jags_data <- list(
+  Y = Y,
+  X = as.matrix(X_scaled),
+  N = N,
+  K = K
+)
+params <- c("alpha", "beta", "p")
+
+inits <- list(
+  list(.RNG.name = "base::Wichmann-Hill", .RNG.seed = 1),
+  list(.RNG.name = "base::Wichmann-Hill", .RNG.seed = 2),
+  list(.RNG.name = "base::Wichmann-Hill", .RNG.seed = 3)
+)
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+#initializing JAGS model
+model_jags <- jags.model(
+  textConnection(model_string),
+  data = jags_data,
+  inits = inits,
+  n.chains = 3,
+)
+```
+
+```{r, message=FALSE, warning=FALSE}
+#adding burn-in period
+update(model_jags, 5000)
+```
+
+```{r, message=FALSE, warning=FALSE}
+#taking samples from simulation
+n_iter <- 15000
+mcmc_samples <- coda.samples(
+  model = model_jags,
+  variable.names = params,
+  n.iter = n_iter,
+  thin = 10
+)
+```
+
+# Posterior Analysis
+
+```{r, message=FALSE, warning=FALSE}
+# combining all chains for analysis
+mcmc_combined <- as.mcmc(do.call(rbind, mcmc_samples))
+```
+
+```{r, message=FALSE, warning=FALSE}
+# summarizing posterior statistics
+summary_mcmc <- summary(mcmc_combined)
+params <- c("alpha", paste0("beta[", 1:10, "]"))
+
+# Filter the summary object to show only those rows
+print(summary_mcmc$quantiles[params, c(2, 4, 5)])
+```
+
+```{r, fig.height=10}
+# plotting posterior distribution
+plot(mcmc_samples[, params])
+```
+
+# Model Evaluation
+
+```{r, message=FALSE, warning=FALSE}
+# evaluating using Posterior Predictive Checks (PPC)
+
+# extracting probability samples
+p_matrix <- as.matrix(mcmc_combined)
+p_cols <- grep("^p", colnames(p_matrix))
+p_samples <- p_matrix[, p_cols]
+
+# generating Posterior Predictive Data (y_rep)
+y_rep <- apply(p_samples, 2, function(p) rbinom(n = length(p), size = 1, prob = p))
+
+# visualizing the Proportion of Malignancy
+p1 <- ppc_stat(y = Y, yrep = y_rep, stat = "mean") + 
+  labs(title = "PPC: Distribution of Predicted Malignancy Rates",
+       x = "Proportion of Malignant Cases (mean Y)")
+
+# showing the PPC Plot
+print(p1)
+```
+
+```{r, message=FALSE, warning=FALSE}
+# calculating the posterior mean for each patient's probability
+posterior_mean_p <- colMeans(p_samples)
+
+# converting into binary predictions (Y_pred = 1 if probability > 0.5)
+Y_pred <- as.integer(posterior_mean_p > 0.5)
+
+# evaluating using Confusion Matrix
+conf_matrix <- table(Actual = Y, Predicted = Y_pred)
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+
+print(conf_matrix)
+cat("\n Model Accuracy: ", round(accuracy * 100, 2), "%\n")
+```
+
+```{r, message=FALSE, warning=FALSE}
+# evaluating using AUC
+roc_obj <- roc(Y, posterior_mean_p)
+auc_value <- auc(roc_obj)
+plot(roc_obj, main = paste("ROC Curve (AUC:", round(auc_value, 4), ")"))
+grid()
+```
+
+# MCMC Diagnostics
+
+```{r, message=FALSE, warning=FALSE}
+# evaluating using Gelman–Rubin (PSRF)
+mcmc_params_only <- mcmc_samples[, params]
+
+gelman_results <- gelman.diag(mcmc_params_only, autoburnin = FALSE)
+print(gelman_results)
+
+# plotting Gelman Rubin
+gelman.plot(mcmc_params_only, autoburnin = FALSE)
+```
+
+```{r, message=FALSE, warning=FALSE}
+# evaluating using Geweke Diagnostics
+
+geweke_results <- geweke.diag(mcmc_params_only)
+print(geweke_results)
+
+# plotting Geweke
+par(mfrow = c(2, 2))
+geweke.plot(mcmc_params_only)
+```
+
+```{r, message=FALSE, warning=FALSE}
+# calculating effective sample size
+ess_vals <- effectiveSize(mcmc_params_only)
+print(ess_vals)
+```
+
