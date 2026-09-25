@@ -30,8 +30,8 @@ This project was developed as part of the **Bayesian Data Analysis** coursework.
 ## 📂 Project Structure
 ```text
 ├── code/                  # R Markdown, HTML reports, and R source files
-├── presentation/          # Slide presentation files
-├── paper/                 # Research paper documentation (PDF)
+├── presentation.pdf       # Slide presentation files
+├── paper.pdf              # Research paper documentation (PDF)
 ├── dataset.csv            # Wisconsin Diagnostic Breast Cancer dataset
 ├── README.md              # Project documentation
 └── requirements.R         # R package dependencies (or renv.lock)
