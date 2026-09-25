@@ -9,7 +9,7 @@ This project was developed as part of the **Bayesian Data Analysis** coursework.
 
 ## ⚙️ Methodology
 1. **Bayesian Logistic Regression:** Formulating a binary logistic regression model under a Bayesian framework using a Bernoulli likelihood with a logit link function
-2. **Prior Specification:** Assigning weakly informative Normal priors ($N(0, \sigma^2)$) to the regression coefficients to stabilize estimation and allow data to dominate inference
+2. **Prior Specification:** Assigning weakly informative Normal priors to the regression coefficients to stabilize estimation and allow data to dominate inference
 3. **Posterior Inference & MCMC:** Utilizing Markov Chain Monte Carlo (MCMC) sampling via HMC/NUTS to approximate the intractable posterior distribution
 4. **Convergence Diagnostics:** Assessing chain convergence using Gelman-Rubin potential scale reduction factors (PSRF) and Geweke diagnostics
 5. **Model Evaluation:** Evaluating performance via posterior predictive checks, confusion matrix metrics (Accuracy, Sensitivity, Specificity), and the Receiver Operating Characteristic (ROC) curve with AUC
